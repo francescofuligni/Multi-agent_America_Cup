@@ -1,5 +1,5 @@
 TEX := main.tex
-PDF := Multiagent_America_Cup_report.pdf
+PDF := Multi-agent_America_Cup_report.pdf
 OUTDIR := build
 
 .PHONY: all clean

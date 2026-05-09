@@ -1,4 +1,4 @@
-This is pdfTeX, Version 3.141592653-2.6-1.40.29 (TeX Live 2026) (preloaded format=pdflatex 2026.4.1)  9 MAY 2026 19:42
+This is pdfTeX, Version 3.141592653-2.6-1.40.29 (TeX Live 2026) (preloaded format=pdflatex 2026.4.1)  9 MAY 2026 19:48
 entering extended mode
  restricted \write18 enabled.
  %&-line parsing enabled.
@@ -346,7 +346,7 @@ Package babel Info: Hyphen rules for 'newzealand' set to \l@ukenglish
 File: l3backend-pdftex.def 2025-10-09 L3 backend support: PDF output (pdfTeX)
 \l__color_backend_stack_int=\count312
 )
-No file main.aux.
+(build/main.aux)
 \openout1 = `main.aux'.
 
 LaTeX Font Info:    Checking defaults for OML/cmm/m/it on input line 18.
@@ -367,6 +367,7 @@ LaTeX Font Info:    Checking defaults for PD1/pdf/m/n on input line 18.
 LaTeX Font Info:    ... okay on input line 18.
 LaTeX Font Info:    Checking defaults for PU/pdf/m/n on input line 18.
 LaTeX Font Info:    ... okay on input line 18.
+
 *geometry* driver: auto-detecting
 *geometry* detected driver: pdftex
 *geometry* verbose mode - [ preamble ] result:
@@ -441,6 +442,8 @@ Package color Info: Driver file: pdftex.def on input line 149.
 
 (/usr/local/texlive/2026/texmf-dist/tex/latex/graphics/mathcolor.ltx))
 Package hyperref Info: Link coloring ON on input line 18.
+
+(build/main.out) (build/main.out)
 \@outlinefile=\write3
 \openout3 = `main.out'.
 
@@ -482,21 +485,14 @@ al/texlive/2026/texmf-dist/fonts/enc/dvips/lm/lm-ec.enc}] (build/main.aux)
 LaTeX2e <2025-11-01>
 L3 programming layer <2026-01-19>
  ***********
-
-
-Package rerunfilecheck Warning: File `main.out' has changed.
-(rerunfilecheck)                Rerun to get outlines right
-(rerunfilecheck)                or use package `bookmark'.
-
-Package rerunfilecheck Info: Checksums for `main.out':
-(rerunfilecheck)             Before: <no file>
-(rerunfilecheck)             After:  648E8A57B01A7D6B5511C549190A9538;594.
+Package rerunfilecheck Info: File `main.out' has not changed.
+(rerunfilecheck)             Checksum: 648E8A57B01A7D6B5511C549190A9538;594.
  ) 
 Here is how much of TeX's memory you used:
- 11068 strings out of 467525
- 173227 string characters out of 5418983
- 609364 words of memory out of 5000000
- 39837 multiletter control sequences out of 15000+600000
+ 11082 strings out of 467525
+ 173410 string characters out of 5418983
+ 609342 words of memory out of 5000000
+ 39845 multiletter control sequences out of 15000+600000
  659740 words of font info for 57 fonts, out of 8000000 for 9000
  1141 hyphenation exceptions out of 8191
  75i,6n,79p,250b,465s stack positions out of 10000i,1000n,20000p,200000b,200000s
@@ -506,10 +502,10 @@ cal/texlive/2026/texmf-dist/fonts/type1/public/lm/lmbx9.pfb></usr/local/texlive
 -dist/fonts/type1/public/lm/lmr12.pfb></usr/local/texlive/2026/texmf-dist/fonts
 /type1/public/lm/lmr17.pfb></usr/local/texlive/2026/texmf-dist/fonts/type1/publ
 ic/lm/lmr9.pfb>
-Output written on build/main.pdf (1 page, 162876 bytes).
+Output written on build/main.pdf (1 page, 163226 bytes).
 PDF statistics:
- 51 PDF objects out of 1000 (max. 8388607)
- 35 compressed objects within 1 object stream
+ 67 PDF objects out of 1000 (max. 8388607)
+ 51 compressed objects within 1 object stream
  7 named destinations out of 1000 (max. 500000)
- 1 words of extra memory for PDF output out of 10000 (max. 10000000)
+ 41 words of extra memory for PDF output out of 10000 (max. 10000000)
 
