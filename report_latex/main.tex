@@ -1,0 +1,66 @@
+\documentclass{article}
+
+% Page size and margins
+\usepackage[letterpaper,top=2cm,bottom=2cm,left=3cm,right=3cm,marginparwidth=1.75cm]{geometry}
+
+% Useful packages
+\usepackage{amsmath}
+\usepackage{graphicx}
+\usepackage[colorlinks=true, allcolors=blue]{hyperref}
+\usepackage{lmodern}
+\usepackage[T1]{fontenc}
+\usepackage[english]{babel}
+
+\title{Multi-Agent Reinforcement Learning for America's Cup Regattas}
+\author{Your Team}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+In this project, we explore the application of Multi-Agent Reinforcement Learning (MARL)
+to train sailboats to compete in a simulated America's Cup-style regatta. Using Proximal
+Policy Optimization (PPO) in a vectorized multi-agent environment, we developed agents
+capable of learning navigation strategies, managing foiling dynamics, and reacting to a
+stochastic wind field. The final policy achieves a high race completion rate in evaluation,
+while preserving realistic constraints such as gate crossings, boundary limits, and
+collision-related penalties.
+\end{abstract}
+
+\section{Introduction}
+
+This section will introduce the context of autonomous sailing and the motivation for using
+Reinforcement Learning in competitive regatta scenarios. It will briefly describe the main
+challenges of the task: stochastic wind, continuous boat control, tactical interaction between
+boats, and the need to respect simplified racing rules.
+
+\section{Background}
+
+This section will present the theoretical foundations used in the project, including Markov
+Decision Processes, policy optimization, and Proximal Policy Optimization. It will also
+summarize the sailing concepts needed to understand the simulator, such as true wind angle,
+velocity made good, polar performance curves, tacking, gybing, and foiling.
+
+\section{Methodology}
+
+This section will describe the system architecture and the formulation of the learning problem.
+The discussion will include the simulated racecourse, the stochastic wind model, the boat
+physics model, the multi-agent environment, the observation space, the continuous action
+space, and the reward shaping strategy.
+
+\section{Experimental Setup and Results}
+
+This section will report the training configuration, PPO hyperparameters, evaluation protocol,
+and empirical results. It will include quantitative metrics such as completion rate, reward
+evolution, final distances, termination reasons, and qualitative observations from generated
+race videos.
+
+\section{Conclusions}
+
+This section will summarize the achieved results and discuss the main limitations of the
+current simulator. Possible future extensions include richer America's Cup rules, wind shadow
+effects, more accurate hydrodynamics, independent policies for the two boats, and larger
+multi-boat race scenarios.
+
+\end{document}
