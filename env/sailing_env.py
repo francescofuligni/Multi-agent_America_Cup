@@ -53,13 +53,10 @@ class ImprovedSailingEnv(ParallelEnv):
         self.max_collision_correction = 6.0
         self.collision_penalty_scale = 20.0
         self.near_collision_penalty_scale = 3.0
-        # Regola base precedenze: su mure opposte, la barca su mura sinistra paga di più.
         self.port_tack_collision_multiplier = 1.6
-        # Penalita' predittiva: rischio collisione nei prossimi secondi
         self.ttc_horizon = 4.0
         self.ttc_penalty_scale = 5.0
         self.hard_violation_penalty = 10_000.0
-        # Spin detection (giro completo + progresso scarso)
         self.spin_window_len = 30
         self.spin_turn_threshold = np.radians(450.0)
         self.spin_min_progress = 0.0
@@ -75,6 +72,20 @@ class ImprovedSailingEnv(ParallelEnv):
         self.top_gate_y = self.field_length - 200.0
         self.bottom_gate_y = 200.0
         self.gate_width = 300.0
+
+        # --- PRESTART PHASE ---
+        # La linea di partenza è posizionata leggermente sotto il bottom gate,
+        # in modo che le barche debbano prima attraversarla per iniziare la regata.
+        self.start_line_y = self.bottom_gate_y - 50.0
+        self.start_timer = 40           # Numero di step della fase prestart
+        self.start_phase = True         # True finché il timer non scade
+        self.start_armed = False        # Diventa True quando la gara è ufficialmente attiva
+        self.ocs_penalty = 200.0        # Penalità per partenza anticipata (On Course Side)
+
+        # Reward shaping prestart
+        self.prestart_line_bonus_scale = 3.0    # Scala reward per vicinanza alla linea
+        self.prestart_timer_bonus_scale = 2.0   # Scala reward per avanzamento timer
+        self.prestart_speed_bonus_scale = 0.1   # Scala reward per velocità in prestart
 
         self.observation_spaces = {agent: spaces.Box(
             low=-1.0, high=1.0, shape=(23,), dtype=np.float32
@@ -111,30 +122,47 @@ class ImprovedSailingEnv(ParallelEnv):
             
         self.agents = self.possible_agents[:]
         self.step_count = 0
-        self.finished_boats = 0  # Contatore arrivi scaglionati
+        self.finished_boats = 0
 
-        # Inizializziamo il vento fisicamente da Nord a Sud 
+        # Ripristino stato prestart ad ogni reset
+        self.start_phase = True
+        self.start_armed = False
+        self.start_timer = 40
+
         if options and 'wind_direction' in options:
             base_dir = float(options['wind_direction'])
         else:
             base_dir = 1.5 * np.pi
-            # Aggiunta variabilità vento (-15 a +15 gradi)
             offset = self.np_random.uniform(-np.radians(15), np.radians(15))
             base_dir += offset
         self.wind_field.reset(self.np_random, base_direction=base_dir)
 
         gate_left_x = self.course_center_x - self.gate_width / 2.0
         gate_right_x = self.course_center_x + self.gate_width / 2.0
-        start_y = self.bottom_gate_y - 80.0  
 
-        # Assegnazione casuale: chi va a sinistra e chi a destra del gate di partenza
-        sides = [gate_left_x, gate_right_x]
-        if self.np_random.random() < 0.5:
-            sides = sides[::-1]
+        # --- SPAWN BARCHE (Prestart) ---
+        # Entrambe le barche partono dalla stessa fascia Y casuale sotto la linea di
+        # partenza, per garantire parità di condizioni. La posizione X è invece
+        # variabile e casuale, con un gap minimo imposto tra le due barche per evitare
+        # collisioni immediate. Le barche non possono partire troppo vicine ai bordi.
+        margin = 60.0
+        min_gap = 120.0
 
-        for i, agent in enumerate(self.possible_agents):
-            start_x = sides[i]
-            
+        shared_start_y = self.np_random.uniform(
+            self.start_line_y - 100.0,
+            self.start_line_y - 20.0
+        )
+
+        xs = []
+        for agent in self.possible_agents:
+            while True:
+                start_x = self.np_random.uniform(margin, self.field_width - margin)
+                if all(abs(start_x - x) > min_gap for x in xs):
+                    xs.append(start_x)
+                    break
+
+            start_y = shared_start_y
+
             self.state[agent] = {
                 'x': start_x,
                 'y': start_y,
@@ -157,19 +185,21 @@ class ImprovedSailingEnv(ParallelEnv):
                 'max_y_reached': start_y,
             }
 
-            # Ogni barca deve girare realmente una boa
             rounding_side = float(self.np_random.choice([-1, 1]))
             round_mark_x = self.course_center_x + rounding_side * (self.gate_width / 2.0)
             self.round_marks[agent] = {'side': rounding_side, 'x': round_mark_x}
             
-            self.target[agent] = np.array([self.course_center_x, self.bottom_gate_y])
+            # In prestart il target iniziale è la linea di partenza (start_line_y),
+            # non il bottom gate: aiuta il reward shaping di vicinanza alla linea.
+            self.target[agent] = np.array([self.course_center_x, self.start_line_y])
             
             self.trajectory[agent] = [np.array([self.state[agent]['x'], self.state[agent]['y']])]
             pos = np.array([self.state[agent]['x'], self.state[agent]['y']])
             self.previous_distance[agent] = np.linalg.norm(pos - self.target[agent])
             self.best_distance[agent] = self.previous_distance[agent]
+
         for agent in self.possible_agents:
-            start_heading = np.pi / 2.0 
+            start_heading = np.pi / 2.0
             start_heading += self.np_random.uniform(-np.radians(10), np.radians(10))
             self.state[agent]['heading'] = self._normalize_angle(start_heading)
 
@@ -224,14 +254,12 @@ class ImprovedSailingEnv(ParallelEnv):
         retries = self.state[agent]['rounding_retries']
         reward -= self.rounding_retry_penalty * min(3, retries)
 
-        # Se insiste troppo: termina con violazione dedicata.
         if retries >= self.rounding_max_retries:
             reward -= self.hard_violation_penalty
             terminated = True
             self.state[agent]['termination_reason'] = 'failed_rounding'
             return reward, terminated, round_pen
 
-        # Retry del rounding: reset timer e riporta target esterno alla boa corretta.
         self.state[agent]['rounding_steps'] = 0
         side = float(self.state[agent].get('rounding_side', 1.0))
         segment = self.state[agent].get('rounding_segment', None)
@@ -332,7 +360,6 @@ class ImprovedSailingEnv(ParallelEnv):
         rudder_input = float(np.clip(rudder_raw, -1.0, 1.0))
         self.state[agent]['rudder_angle'] = rudder_input
 
-        # calcola heading e velocità
         speed_factor = self.state[agent]['speed'] / self.max_speed
         effective_factor = self.min_turn_factor + (1.0 - self.min_turn_factor) * speed_factor
         turn_rate = rudder_input * effective_factor * self.max_turn_per_step
@@ -363,7 +390,6 @@ class ImprovedSailingEnv(ParallelEnv):
         ))
         self.state[agent]['sail_trim'] = float(np.clip(prev_trim + trim_delta, 0.0, 1.0))
 
-        # Frenata virata brusca: ridotta in foiling per permettere virate/strambate più vere e lunghe
         if self.state[agent]['is_foiling']:
             brake_factor = (abs(rudder_input) ** 1.5) * 0.05
             self.state[agent]['speed'] *= (1.0 - brake_factor)
@@ -382,7 +408,6 @@ class ImprovedSailingEnv(ParallelEnv):
         current_inertia = self.foiling_inertia if self.state[agent]['is_foiling'] else self.displacement_inertia
         self.state[agent]['speed'] = self.state[agent]['speed'] * current_inertia + target_speed * (1.0 - current_inertia)
         
-        # Meccanica dei foil
         was_foiling = self.state[agent]['is_foiling']
         
         aw_norm = self._normalize_angle(apparent_wind_angle)
@@ -457,7 +482,6 @@ class ImprovedSailingEnv(ParallelEnv):
             if not (1e-6 < dist < near_collision_radius):
                 continue
 
-            # Penalita' di prossimita': evita ingaggi troppo ravvicinati prima del contatto.
             near_ratio = (near_collision_radius - dist) / near_collision_radius
             near_pen = near_ratio * self.near_collision_penalty_scale
             near_collision_penalty += near_pen
@@ -466,10 +490,6 @@ class ImprovedSailingEnv(ParallelEnv):
             if other in infos:
                 infos[other]['near_collision_penalty'] = infos[other].get('near_collision_penalty', 0.0) + near_pen
 
-            # --- Time-To-Collision (TTC) Penalty ---
-            # Questo blocco calcola quanto velocemente due barche si stanno avvicinando.
-            # Se la velocità di avvicinamento (closing_speed) è alta, calcoliamo il tempo previsto all'impatto.
-            # Una penalità predittiva viene applicata proporzionalmente per disincentivare manovre a rischio.
             delta_hat = delta / dist
             vel_curr = np.array([
                 np.cos(self.state[agent]['heading']) * self.state[agent]['speed'],
@@ -503,7 +523,6 @@ class ImprovedSailingEnv(ParallelEnv):
             penalty_curr = base_penalty
             penalty_other = base_penalty
 
-            # Precedenza semplificata: su mure opposte penalizza maggiormente chi e' su mura sinistra.
             opposite_tacks = (self.state[agent]['active_foil'] * self.state[other]['active_foil']) < 0.0
             if opposite_tacks:
                 curr_is_port = self.state[agent]['active_foil'] < 0.0
@@ -522,12 +541,6 @@ class ImprovedSailingEnv(ParallelEnv):
             hard_collision = dist < (collision_radius * 0.6) and closing_speed > 6.0
             if hard_collision:
                 if opposite_tacks:
-                    # --- Regola 10 della Vela (Mure Opposte) ---
-                    # Nelle regate reali, se due imbarcazioni sono su mure opposte e c'è collisione,
-                    # l'imbarcazione su mure a sinistra (Port) è sempre nel torto.
-                    # In questo blocco terminiamo immediatamente l'episodio per la barca "Port", 
-                    # assegnandole una penalità severissima. La barca "Starboard" (dritta) 
-                    # riceve solo una penalità lieve e le è concesso continuare.
                     if curr_is_port and not other_is_port:
                         hard_violation = True
                         hard_violation_reason = 'collision_port_tack_violation'
@@ -546,7 +559,6 @@ class ImprovedSailingEnv(ParallelEnv):
                             infos[other]['termination_reason'] = 'collision_port_tack_violation'
                         agent_reward_delta -= 50.0
                 else:
-                    # Stesse mure: distruzione reciproca
                     hard_violation = True
                     hard_violation_reason = 'collision'
                     rewards.setdefault(other, 0.0)
@@ -561,7 +573,6 @@ class ImprovedSailingEnv(ParallelEnv):
                 rewards.setdefault(other, 0.0)
                 rewards[other] -= penalty_other
 
-            # Piccola separazione per evitare interpenetrazione persistente.
             overlap = collision_radius - dist
             corr_mag = min(max_correction_per_boat, overlap * 0.5)
             direction = delta / dist
@@ -598,6 +609,51 @@ class ImprovedSailingEnv(ParallelEnv):
         terminated = False
         truncated = False
         self.state[agent]['termination_reason'] = None
+
+        # =========================
+        # PRESTART PHASE REWARD
+        # =========================
+        # Durante la fase di prestart (prima che il timer scada), il sistema di reward
+        # è completamente diverso da quello di regata. L'obiettivo è incentivare le barche
+        # ad avvicinarsi alla linea di partenza, mantenersi in movimento e prepararsi
+        # all'accelerazione, senza però superare la linea anticipatamente (OCS).
+        if self.start_phase:
+            # Quanto è avanzato il timer (0.0 = inizio, 1.0 = fine)
+            timer_ratio = min(self.step_count / self.start_timer, 1.0)
+
+            dist_to_line = abs(pos[1] - self.start_line_y)
+
+            # Reward per vicinanza alla linea: massimo quando la barca è esattamente sulla linea
+            reward += (1.0 - dist_to_line / 200.0) * self.prestart_line_bonus_scale
+
+            # Reward crescente man mano che il via si avvicina: crea urgenza verso la linea
+            reward += timer_ratio * self.prestart_timer_bonus_scale
+
+            # Piccolo bonus per velocità: incentiva l'accelerazione pre-partenza
+            reward += self.state[agent]['speed'] * self.prestart_speed_bonus_scale
+
+            # OCS (On Course Side): la barca ha superato la linea prima del via → squalifica
+            # Margine di 2m per evitare falsi positivi dovuti alla fisica discreta
+            if self.state[agent]['y'] > self.start_line_y + 2.0:
+                reward -= self.ocs_penalty
+                terminated = True
+                self.state[agent]['termination_reason'] = 'ocs'
+
+            return {
+                'reward': reward,
+                'terminated': terminated,
+                'truncated': truncated,
+                'dist_to_target': dist_to_target,
+                'round_penalty': 0.0,
+                'finished_race': False,
+                'termination_reason': self.state[agent].get('termination_reason', None)
+            }
+
+        # =========================
+        # GARA: REWARD STANDARD
+        # =========================
+        # Da qui in poi self.start_phase == False: la regata è iniziata e si usa
+        # il sistema di reward completo basato su VMG, rotta, velocità, collisioni ecc.
 
         distance_delta = ctx['prev_dist'] - dist_to_target
         spin_progress_window = self.state[agent].setdefault('spin_progress_window', [])
@@ -693,12 +749,6 @@ class ImprovedSailingEnv(ParallelEnv):
 
         if not terminated:
             current_leg = self.state[agent]['current_leg']
-            # --- Anti-Loop / Wrong Course System ---
-            # Per evitare che gli agenti trovino strategie "degenerate" come girare in tondo 
-            # all'infinito o tornare indietro anziché seguire il percorso della regata,
-            # verifichiamo continuamente la loro posizione rispetto ai gate attesi.
-            # Se la barca retrocede eccessivamente lungo l'asse Y (es. sta andando a sud
-            # mentre il leg richiede di andare a nord), attiviamo la terminazione immediata.
             wrong_course = False
             if current_leg == 1 and by < self.bottom_gate_y - 150:
                 wrong_course = True
@@ -714,15 +764,26 @@ class ImprovedSailingEnv(ParallelEnv):
 
         if not terminated:
             if self.state[agent]['current_leg'] == 0:
-                if ctx['prev_y'] < self.bottom_gate_y <= by:
+                # Leg 0: attraversamento della linea di partenza.
+                # La condizione start_armed garantisce che il passaggio sia valido
+                # solo dopo che il timer prestart è scaduto.
+                if self.start_armed and ctx['prev_y'] < self.start_line_y <= by:
                     if gate_left <= bx <= gate_right:
                         self.state[agent]['current_leg'] = 1
-                        reward += 400.0  # Bonus partenza
-                        mark_info = self.round_marks[agent]
-                        self.target[agent] = np.array([mark_info['x'], self.top_gate_y])
+                        reward += 400.0  # Bonus partenza valida
+
+                        # Bonus qualità start: più la barca è vicina alla linea al momento
+                        # del via, maggiore è il bonus (simula un start preciso e aggressivo)
+                        dist_from_line = abs(pos[1] - self.start_line_y)
+                        quality_bonus = max(0.0, (1.0 - dist_from_line / 100.0)) * 500.0
+                        reward += quality_bonus
+
+                        # Aggiorna il target al gate di bolina
+                        self.target[agent] = np.array([self.course_center_x, self.bottom_gate_y])
                         self.previous_distance[agent] = np.linalg.norm(pos - self.target[agent])
                         self.best_distance[agent] = self.previous_distance[agent]
                     else:
+                        # Attraversamento fuori gate: squalifica immediata
                         reward -= self.hard_violation_penalty
                         terminated = True
                         self.state[agent]['termination_reason'] = 'missed_start_gate'
@@ -753,7 +814,7 @@ class ImprovedSailingEnv(ParallelEnv):
                 
                 if valid_y and valid_x:
                     self.state[agent]['current_leg'] = 2
-                    reward += 500.0  # Super Bonus
+                    reward += 500.0
                     
                     round_side = -1.0 if bx < gate_left else 1.0
                     self._start_rounding_segment(agent, segment='top_to_bottom', side=round_side)
@@ -772,17 +833,15 @@ class ImprovedSailingEnv(ParallelEnv):
                         self.previous_distance[agent] = np.linalg.norm(pos - self.target[agent])
                         self.best_distance[agent] = self.previous_distance[agent]
 
-                # Downwind
                 if not self.state[agent].get('post_round_pending', False):
                     crossed_bottom_line = ctx['prev_y'] > self.bottom_gate_y >= by
                     if crossed_bottom_line:
                         if gate_left <= bx <= gate_right:
-                            # Arrivo immediato al superamento del gate
                             self.finished_boats += 1
                             efficiency = max(0, self.max_steps - self.step_count) / self.max_steps
                             
                             if self.finished_boats == 1:
-                                reward += 2500.0 + efficiency * 1000.0 # Bonus vittoria accorpato
+                                reward += 2500.0 + efficiency * 1000.0
                                 self.state[agent]['termination_reason'] = 'finished_first'
                             else:
                                 reward += 700.0
@@ -792,14 +851,11 @@ class ImprovedSailingEnv(ParallelEnv):
                             self.state[agent]['steps_to_target'] = self.step_count
                             self.state[agent]['current_leg'] = 2 
                         else:
-                            # Passaggio fuori gate: squalifica immediata
                             reward -= self.hard_violation_penalty
                             terminated = True
                             self.state[agent]['termination_reason'] = 'missed_bottom_gate'
 
-
         if not terminated:
-            # Protezione rounding: penalita' crescente + retry + hard-fail dedicato.
             reward, terminated, round_penalty = self._apply_rounding_control(
                 agent=agent,
                 reward=reward,
@@ -816,8 +872,7 @@ class ImprovedSailingEnv(ParallelEnv):
                 if progress > 0:
                     reward += progress * 200.0
 
-            # Giro su se stessa + progresso scarso/negativo: hard-fail.
-            if True: # Rimosso check leg 3
+            if True:
                 turn_sum = float(np.sum(self.state[agent].get('spin_turn_window', [])))
                 prog_sum = float(np.sum(self.state[agent].get('spin_progress_window', [])))
                 if len(self.state[agent].get('spin_turn_window', [])) >= self.spin_window_len and turn_sum >= self.spin_turn_threshold and prog_sum <= self.spin_min_progress:
@@ -825,7 +880,6 @@ class ImprovedSailingEnv(ParallelEnv):
                     terminated = True
                     self.state[agent]['termination_reason'] = 'spin_violation'
 
-            # Hard violation da collisione rilevata nel blocco pairwise.
             if col_ctx['hard_violation']:
                 reward -= self.hard_violation_penalty
                 terminated = True
@@ -851,6 +905,13 @@ class ImprovedSailingEnv(ParallelEnv):
 
         self.step_count += 1
         self.wind_field.step()
+
+        # --- Aggiornamento stato prestart ---
+        # Il timer scatta a ogni step. Quando raggiunge start_timer, la fase di prestart
+        # termina e la gara inizia ufficialmente (start_armed = True).
+        if self.start_phase and self.step_count >= self.start_timer:
+            self.start_phase = False
+            self.start_armed = True
 
         observations = {}
         rewards = {}
@@ -884,6 +945,8 @@ class ImprovedSailingEnv(ParallelEnv):
                 'vmg_norm': ctx['vmg_norm'],
                 'leg': self.state[agent]['current_leg'],
                 'steps': self.step_count,
+                'start_phase': self.start_phase,
+                'start_armed': self.start_armed,
                 'steps_to_target': self.state[agent].get('steps_to_target', None),
                 'best_distance': self.best_distance[agent],
                 'finished_race': rev_ctx['finished_race'],
@@ -907,7 +970,6 @@ class ImprovedSailingEnv(ParallelEnv):
         self.agents = [a for a in self.agents if not (terminations.get(a, False) or truncations.get(a, False))]
 
         return observations, rewards, terminations, truncations, infos
-
 
     def render(self):
         if self.render_mode == 'rgb_array':
