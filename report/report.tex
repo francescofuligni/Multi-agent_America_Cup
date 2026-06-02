@@ -20,26 +20,26 @@ Daniele Silvestri}
 \maketitle
 
 \begin{abstract}
-This report presents a Multi-Agent Reinforcement Learning framework for a two-dimensional America's Cup regatta simulator. The project extends a didactic sailing reinforcement-learning setting into a competitive PettingZoo ParallelEnv in which two autonomous boats learn continuous rudder and sail-trim control under stochastic wind, polar-performance constraints, and hybrid displacement/foiling dynamics. The agents are trained with Proximal Policy Optimization (PPO) through Stable-Baselines3 and SuperSuit vectorization. The available evidence consists of the trained model artifact, rendered trajectories, and exported training plots for mean episodic reward and mean Velocity Made Good (VMG). Since raw evaluation logs are not present in the repository, this report does not claim a measured finish rate; instead, it provides a code-grounded formulation of the environment and a qualitative analysis of the observed learning behavior.
+This paper presents a Multi-Agent Reinforcement Learning (MARL) framework for a two-dimensional simulator of America's Cup regattas. The project extends a didactic reinforcement learning environment applied to sailing into a competitive PettingZoo \texttt{ParallelEnv}, in which two autonomous vessels learn continuous rudder and sail trim control in the presence of stochastic wind, polar performance constraints, and hybrid dynamics between displacement and foiling navigation. The agents are trained with the PPO (Proximal Policy Optimization) algorithm via Stable-Baselines3 and SuperSuit vectorization. The available evidence consists of the trained model artifact, rendered trajectories, and training plots exported for mean episodic reward and mean VMG (Velocity Made Good).
 \end{abstract}
 
 \section{Introduction}
-Autonomous sailing is a sequential decision-making problem in which control, navigation, and environmental adaptation are tightly coupled. A sailboat cannot move directly in arbitrary directions: its feasible velocity is constrained by the wind angle, the aerodynamic efficiency of the sails, hydrodynamic drag, and, in modern high-performance boats, the transition between displacement sailing and foiling. America's Cup racing adds a further competitive layer: each boat must not only optimize its own progress around the course, but also react to an opponent while respecting tactical constraints and racing rules.
+Autonomous sailing is a sequential decision-making problem in which control, navigation, and environmental adaptation are tightly coupled. A sailing vessel cannot move freely in arbitrary directions: its achievable speed is constrained by the wind angle, the aerodynamic efficiency of the sails, hydrodynamic resistance, and, in modern high-performance craft, the transition between displacement and foiling navigation. America's Cup regattas add a further competitive layer: each vessel must not only optimize its progress along the course, but also react to the opponent while respecting tactical constraints and racing rules.
 
-This project, \textit{CoppaAmerica Multiagent}, implements a simplified but technically rich 2D simulator of an America's Cup match race. The environment contains two agents, \texttt{red\_boat} and \texttt{blue\_boat}, a rectangular race field, an upwind/downwind course with mandatory gates, a stochastic wind field, continuous rudder and sail-trim actions, and a dense reward function designed to encourage progress, VMG, trim efficiency, foiling stability, and safe tactical interactions.
+This project, \textit{CoppaAmerica Multiagente}, implements a simplified yet technically rich 2D simulator of an America's Cup match race. The environment contains two agents, \texttt{red\_boat} and \texttt{blue\_boat}, a rectangular racing field, an upwind/downwind course with mandatory gates, a stochastic wind field, continuous rudder and sail trim actions, and a dense reward function designed to incentivize progress, VMG, trim efficiency, foil stability, and safe tactical interactions.
 
-The work is conceptually connected to the course notebook \textit{RL basics: learning how to sail}, where a single sailboat learns to reach a waypoint in a simplified Gymnasium environment using basic state variables, actions, rewards, polar behavior, and VMG. The present project generalizes that educational setting along four dimensions: it moves from a single-agent task to a competitive multi-agent environment, from simplified/discrete steering to continuous control, from a basic physical model to a hybrid displacement/foiling polar model, and from a fixed or simple wind model to stochastic spatio-temporal wind dynamics.
+The work is conceptually linked to the course notebook \textit{RL basics: learning how to sail}, in which a single sailing vessel learns to reach a waypoint in a simplified Gymnasium environment, using state variables, actions, rewards, polar behavior, and basic VMG. The present project generalizes that didactic setup along four dimensions: it moves from a single-agent task to a competitive multi-agent environment, from simplified/discrete steering to continuous control, from a basic physical model to a hybrid displacement/foil polar model, and from a fixed or simple wind model to stochastic spatio-temporal wind dynamics.
 
 \section{Background}
 
 \subsection{Notation and Agent--Environment Interaction}
-Following the notation used in the course notes, random variables are denoted by uppercase letters, such as $S_t$, $A_t$, and $R_t$, while their realizations are denoted by lowercase letters, such as $s_t$, $a_t$, and $r_t$. Expectations are taken with respect to the probability distribution induced jointly by the policy and the environment dynamics.
+Following the notation used in the course notes, random variables are denoted with uppercase letters, such as $S_t$, $A_t$, and $R_t$, while their realizations are denoted with lowercase letters, such as $s_t$, $a_t$, and $r_t$. Expected values are computed with respect to the probability distribution jointly induced by the policy and the environment dynamics.
 
-In Reinforcement Learning, an agent interacts with an environment over discrete time steps. At time $t$, the agent observes a state $S_t$, selects an action $A_t$, receives a reward $R_t$, and the environment transitions to a new state $S_{t+1}$. The interaction can be written as
+In Reinforcement Learning, an agent interacts with the environment at discrete time steps. At time $t$, the agent observes a state $S_t$, selects an action $A_t$, receives a reward $R_t$, and the environment transitions to a new state $S_{t+1}$. The interaction can be written as
 \begin{equation}
     S_t \xrightarrow{A_t} (S_{t+1}, R_t).
 \end{equation}
-In stochastic environments, the next state and reward are not deterministic functions of the current state and action. They are sampled from environment-induced distributions:
+In stochastic environments, the next state and reward are not deterministic functions of the current state and action. They are sampled from the distributions induced by the environment:
 \begin{equation}
     S_{t+1} \sim P(\cdot \mid S_t, A_t),
     \qquad
@@ -47,26 +47,26 @@ In stochastic environments, the next state and reward are not deterministic func
 \end{equation}
 
 \subsection{Markov Decision Processes}
-The Markov property states that the future depends on the present state and not on the full history:
+The Markov property states that the future depends on the present state and not on the entire history:
 \begin{equation}
     \Pr(X_{t+1}=j \mid X_t=i, X_{t-1}, \ldots, X_0)
     =
     \Pr(X_{t+1}=j \mid X_t=i).
 \end{equation}
-An MDP formalizes a sequential decision problem as a tuple
+An MDP formalizes a sequential decision-making problem as a tuple
 \begin{equation}
     M = (\mathcal{S}, \mathcal{A}, P, r, \mu, \gamma),
 \end{equation}
 where $\mathcal{S}$ is the state space, $\mathcal{A}$ is the action space, $P(s' \mid s,a)$ is the transition probability, $r(s,a)$ is the reward function, $\mu$ is the initial state distribution, and $\gamma \in [0,1]$ is the discount factor.
 
-In the present simulator, each boat observes only a feature vector derived from the full simulator state. The implementation is therefore best interpreted as a multi-agent, partially observed control problem, but the learning interface follows the standard MDP formulation at the level of each agent's observation and action.
+In the current simulator, each vessel observes only a feature vector derived from the full simulator state. The implementation is therefore better interpreted as a partially observed multi-agent control problem, but the learning interface follows the standard MDP formulation at the level of each agent's observations and actions.
 
 \subsection{Policies, Trajectories, and Return}
 A policy defines how actions are selected from states. A deterministic policy has the form
 \begin{equation}
     A_t = \pi(S_t),
 \end{equation}
-whereas a stochastic policy samples an action according to a conditional distribution:
+while a stochastic policy samples an action according to a conditional distribution:
 \begin{equation}
     A_t \sim \pi(\cdot \mid S_t).
 \end{equation}
@@ -79,12 +79,12 @@ Under a stochastic policy $\pi$, the probability of such a trajectory is
     p(\tau) = p(s_0)\prod_{t=0}^{T}\pi(a_t \mid s_t)P(s_{t+1}\mid s_t,a_t).
 \end{equation}
 
-The objective of reinforcement learning is not to maximize immediate reward alone, but cumulative future reward. The discounted return from time $t$ is
+The goal of reinforcement learning is not to maximize immediate reward, but cumulative future reward. The discounted return from time $t$ is
 \begin{equation}
     G_t = R_t + \gamma R_{t+1} + \gamma^2 R_{t+2} + \gamma^3 R_{t+3} + \cdots
     = \sum_{k=0}^{\infty}\gamma^k R_{t+k}.
 \end{equation}
-The goal is to find a policy that maximizes the expected discounted return:
+The objective is to find a policy that maximizes the expected discounted return:
 \begin{equation}
     J(\pi) =
     \mathbb{E}_{s_0 \sim \mu,\pi}
@@ -93,8 +93,8 @@ The goal is to find a policy that maximizes the expected discounted return:
     \right].
 \end{equation}
 
-\subsection{Value Functions and Bellman Equation}
-The state-value function measures how much return is expected when starting from state $s$ and following policy $\pi$:
+\subsection{Value Functions and the Bellman Equation}
+The state value function measures the expected return starting from state $s$ following policy $\pi$:
 \begin{equation}
     V^\pi(s) =
     \mathbb{E}_{\pi}
@@ -103,7 +103,7 @@ The state-value function measures how much return is expected when starting from
         \mid S_0=s
     \right].
 \end{equation}
-The action-value function measures the expected return when first taking action $a$ in state $s$ and then following policy $\pi$:
+The action value function measures the expected return when first executing action $a$ in state $s$ and then following policy $\pi$:
 \begin{equation}
     Q^\pi(s,a) =
     \mathbb{E}_{\pi}
@@ -112,7 +112,7 @@ The action-value function measures the expected return when first taking action 
         \mid S_0=s, A_0=a
     \right].
 \end{equation}
-The two functions are related by averaging action values under the policy:
+The two functions are related by the average of action values under the policy:
 \begin{equation}
     V^\pi(s) = \sum_{a}\pi(a\mid s)Q^\pi(s,a).
 \end{equation}
@@ -124,25 +124,25 @@ The Bellman expectation equation expresses the recursive structure of value:
         r(s,a) + \gamma \sum_{s'}P(s'\mid s,a)V^\pi(s')
     \right].
 \end{equation}
-Equivalently, the action-value function satisfies
+Equivalently, the action value function satisfies
 \begin{equation}
     Q^\pi(s,a) =
     r(s,a) + \gamma \sum_{s'}P(s'\mid s,a)V^\pi(s').
 \end{equation}
 
 \subsection{Model-Free Learning, Function Approximation, and PPO}
-In model-free reinforcement learning, the transition model $P$ and reward model $r$ are not assumed to be known analytically. Instead, the agent learns from sampled transitions $(S_t,A_t,R_t,S_{t+1})$. With function approximation, value functions or policies are represented by parameterized models, typically neural networks. The temporal-difference error for a value approximation $V_\theta$ is
+In model-free reinforcement learning, the transition model $P$ and the reward model $r$ are not assumed to be analytically known. The agent instead learns from sampled transitions $(S_t,A_t,R_t,S_{t+1})$. With function approximation, value functions or policies are represented by parameterized models, typically neural networks. The temporal difference error for a value approximation $V_\theta$ is
 \begin{equation}
     \delta_t = R_t + \gamma V_\theta(S_{t+1}) - V_\theta(S_t),
 \end{equation}
-and the corresponding squared loss is
+and the corresponding quadratic loss is
 \begin{equation}
     L(\theta)=
     \frac{1}{2}
     \left(R_t + \gamma V_\theta(S_{t+1}) - V_\theta(S_t)\right)^2.
 \end{equation}
 
-The America's Cup simulator has continuous observations, continuous actions, and non-linear transition dynamics induced by wind, polar curves, foiling state, and multi-agent interaction. For this reason, the implementation uses Proximal Policy Optimization (PPO), as provided by Stable-Baselines3, as a practical model-free policy-gradient method suitable for continuous control. PPO is not used here to introduce additional theoretical machinery beyond the course notes; rather, it is the concrete algorithmic tool that maps the function-approximation perspective to a trainable continuous-control policy.
+The America's Cup simulator has continuous observations, continuous actions, and nonlinear transition dynamics induced by wind, polar curves, foil state, and multi-agent interaction. For this reason, the implementation uses PPO (Proximal Policy Optimization), provided by Stable-Baselines3, as a practical model-free policy gradient method suited to continuous control. PPO is not used here to introduce additional theoretical machinery beyond the course notes; it is rather the concrete algorithmic tool that maps the function approximation perspective into a trainable continuous control policy.
 
 \section{Methodology}
 
@@ -151,16 +151,16 @@ The environment is implemented as a PettingZoo \texttt{ParallelEnv} with two age
 \begin{equation}
     \mathcal{I}=\{\texttt{red\_boat},\texttt{blue\_boat}\}.
 \end{equation}
-The field has width $W=1900$ m and length $L=4100$ m. The top gate is located at $y=3900$ m, the bottom gate at $y=200$ m, and the gate width is $300$ m. Each episode has a maximum duration of $1800$ simulation steps with $\Delta t=1$ s.
+The field has width $W=1900$ m and length $L=4100$ m. The top gate is positioned at $y=3900$ m, the bottom gate at $y=200$ m, and the gate width is $300$ m. Each episode has a maximum duration of $1800$ simulation steps with $\Delta t=1$ s.
 
-The race is decomposed into sequential legs. The boats start below the bottom gate, cross the start gate, sail upwind toward the top gate, perform a rounding maneuver, and then sail downwind toward the bottom gate. Gate violations, course violations, collisions, and excessive spinning can terminate the episode with severe penalties.
+The race is decomposed into sequential legs. The vessels start below the bottom gate, cross the starting gate, sail upwind toward the top gate, perform a rounding maneuver, and then sail downwind toward the bottom gate. Gate violations, course violations, collisions, and excessive rotations can terminate the episode with severe penalties.
 
 \subsection{Observation Space}
 Each agent receives a normalized continuous observation vector
 \begin{equation}
     o_t^i \in [-1,1]^{23}.
 \end{equation}
-The vector contains normalized position, speed, heading, relative wind angle, local wind speed, distances and bearings to the active gate marks, current rudder and trim state, foiling state, active foil side, leg indicator, and opponent-relative features. With frame stacking configured as $4$, the effective policy input is
+The vector contains normalized position, speed, heading, relative wind angle, local wind speed, distances and bearings to the active gate marks, current rudder and trim state, foil state, active foil side, leg indicator, and opponent-relative features. With frame stacking configured to $4$, the effective policy input is
 \begin{equation}
     \tilde{o}_t^i =
     (o_{t-3}^i,o_{t-2}^i,o_{t-1}^i,o_t^i)
@@ -176,11 +176,11 @@ The vector contains normalized position, speed, heading, relative wind angle, lo
         \hline
         Boat kinematics & $x/W$, $y/L$, speed divided by $50$, and $\sin/\cos$ encoding of heading. \\
         \hline
-        Wind and controls & $\sin/\cos$ encoding of the local relative wind angle, local wind speed divided by $30$, rudder, sail trim mapped to $[-1,1]$, foiling flag, and active foil side. \\
+        Wind and controls & $\sin/\cos$ encoding of local relative wind angle, local wind speed divided by $30$, rudder, sail trim mapped to $[-1,1]$, foil flag, and active foil side. \\
         \hline
-        Course geometry & Normalized distances and relative bearings to the left and right marks, plus a signed leg indicator. \\
+        Course geometry & Normalized distances and relative bearings to left and right marks, plus a signed leg indicator. \\
         \hline
-        Opponent state & Relative opponent position, normalized opponent distance, and speed advantage. \\
+        Opponent state & Opponent relative position, normalized distance to opponent, and speed advantage. \\
         \hline
     \end{tabular}
     \caption{Observation structure used by each agent before frame stacking.}
@@ -192,11 +192,11 @@ The action space is two-dimensional and continuous:
 \begin{equation}
     a_t^i=(u_t^i,z_t^i)\in[-1,1]^2,
 \end{equation}
-where $u_t^i$ is the rudder command and $z_t^i$ is the sail-trim command. The trim action is mapped to a physical trim level by
+where $u_t^i$ is the rudder command and $z_t^i$ is the sail trim command. The trim command is mapped to a physical trim level via
 \begin{equation}
     \tau_t = \mathrm{clip}\left(\frac{z_t+1}{2},0,1\right).
 \end{equation}
-The heading evolves according to a speed-dependent turn rate. Let $v_t$ be the current speed in knots, $v_{\max}=50$, $\rho_{\min}=0.12$, and $\omega_{\max}=25^\circ$. The effective turn factor is
+The heading evolves according to a speed-dependent turn rate. Let $v_t$ be the current speed in knots, $v_{\max}=50$, $\rho_{\min}=0.12$, and $\omega_{\max}=25^\circ$. The effective turning factor is
 \begin{equation}
     \rho_t = \rho_{\min}+(1-\rho_{\min})\frac{v_t}{v_{\max}},
 \end{equation}
@@ -217,7 +217,7 @@ The boat position is updated using the simulated speed converted from knots to m
 \end{equation}
 
 \subsection{Stochastic Wind Field}
-The wind model contains a global base wind and a spatial perturbation grid. At reset, the base wind direction is initialized near north-to-south flow, with random angular offset, and the base wind speed is sampled from $[15,22]$ knots. At each step,
+The wind model contains a global base wind and a spatial perturbation grid. At reset, the base wind direction is initialized near a north-to-south flow, with a random angular offset, and the base wind speed is sampled from $[15,22]$ knots. At each step,
 \begin{align}
     \Theta_{t+1} &=
     (\Theta_t+\varepsilon^\Theta_t)\bmod 2\pi,
@@ -228,7 +228,7 @@ The wind model contains a global base wind and a spatial perturbation grid. At r
     &
     \varepsilon^U_t &\sim \mathcal{U}(-0.3,0.3).
 \end{align}
-Local gusts are represented by a $10\times 10$ grid. For each cell $(m,n)$, direction and speed perturbations evolve as
+Local gusts are represented by a $10\times 10$ grid. For each cell $(m,n)$, the direction and speed perturbations evolve as
 \begin{align}
     D_{t+1}^{m,n}
     &=
@@ -245,8 +245,8 @@ Local gusts are represented by a $10\times 10$ grid. For each cell $(m,n)$, dire
 \end{align}
 where $\eta^{D,m,n}_t\sim\mathcal{N}(0,0.015^2)$ and $\eta^{S,m,n}_t\sim\mathcal{N}(0,0.2^2)$. The local wind experienced by the boat is obtained by bilinear interpolation of the four nearest grid cells and then added to the base wind.
 
-\subsection{Polar-Speed Model and Foiling Dynamics}
-The code computes a relative wind angle $\phi_t\in[0,180]$ degrees from the local wind direction and boat heading. The theoretical polar speed is
+\subsection{Polar Speed Model and Foil Dynamics}
+The code computes a relative wind angle $\phi_t\in[0,180]$ degrees from the local wind direction and the boat heading. The theoretical polar speed is
 \begin{equation}
     v^{\mathrm{base}}_t =
     \min(q_{\kappa_t}(\phi_t)U^{\mathrm{local}}_t,50),
@@ -275,7 +275,7 @@ q_D(\phi)=
 \end{cases}
 \end{equation}
 
-The optimal trim $\tau^\star(\phi,\kappa)$ is computed by linear interpolation over mode-specific trim points. The trim efficiency is Gaussian:
+The optimal trim $\tau^\star(\phi,\kappa)$ is computed by linear interpolation over mode-specific trim points. Trim efficiency is Gaussian:
 \begin{equation}
     e_\tau =
     \exp\left[
@@ -287,7 +287,7 @@ The optimal trim $\tau^\star(\phi,\kappa)$ is computed by linear interpolation o
     \qquad
     \sigma_F=0.12,\quad \sigma_D=0.16.
 \end{equation}
-The speed multiplier induced by trim is
+The trim-induced speed multiplier is
 \begin{equation}
 m_\tau(e_\tau,\kappa)=
 \begin{cases}
@@ -300,22 +300,22 @@ The target speed is
     v^{\mathrm{target}}_t =
     \min(v^{\mathrm{base}}_t m_\tau(e_\tau,\kappa_t),50).
 \end{equation}
-Actual speed follows an inertia update:
+The effective speed follows an inertia update:
 \begin{equation}
     v_{t+1} =
     I_{\kappa_t}v_t + (1-I_{\kappa_t})v^{\mathrm{target}}_t,
     \qquad
     I_F=0.98,\quad I_D=0.85.
 \end{equation}
-The boat enters foiling mode when $v_{t+1}\ge 18$ knots and drops out of foiling when $v_{t+1}<15$ knots.
+The boat enters foiling mode when $v_{t+1}\ge 18$ knots and exits when $v_{t+1}<15$ knots.
 
-\subsection{Reward Shaping}
+\subsection{Reward Modeling}
 The reward is dense and multi-objective. Let $g_t$ be the active target, $p_t$ the boat position, and
 \begin{equation}
     d_t = \|p_t-g_t\|_2,\qquad
     \Delta d_t=d_{t-1}-d_t.
 \end{equation}
-The progress reward is asymmetric: losing distance is penalized more strongly than gaining distance is rewarded. With $c_t=1.8$ in foiling mode and $c_t=0.65$ otherwise,
+The progress reward is asymmetric: losing distance is penalized more severely than gaining distance is rewarded. With $c_t=1.8$ in foiling mode and $c_t=0.65$ otherwise,
 \begin{equation}
 r^{\mathrm{prog}}_t=
 \begin{cases}
@@ -323,7 +323,7 @@ c_t\Delta d_t, & \Delta d_t\ge 0,\\
 1.8c_t\Delta d_t, & \Delta d_t<0.
 \end{cases}
 \end{equation}
-VMG is the projection of boat velocity onto the direction of the active target:
+VMG is the projection of the boat speed in the direction of the active target:
 \begin{equation}
     \mathrm{VMG}_t =
     v_t
@@ -347,7 +347,7 @@ Let $\beta_t$ be the bearing from the boat to the target and
 \begin{equation}
     h_t = \frac{|\mathrm{wrap}(\beta_t-\psi_t)|}{\pi}.
 \end{equation}
-The heading-alignment term is
+The heading alignment term is
 \begin{equation}
     r^{\mathrm{head}}_t =
     1.2(1-h_t)-3.0\max(h_t-0.75,0).
@@ -358,7 +358,7 @@ The rudder penalty discourages aggressive and oscillatory steering:
     -2|u_t|^3 -5(u_t-u_{t-1})^2.
 \end{equation}
 
-Trim and foiling rewards are
+The trim and foil rewards are
 \begin{align}
     r^{\mathrm{trim}}_t
     &=
@@ -373,7 +373,7 @@ where $\xi_t=0.18$ on the upwind leg and $\xi_t=0.24$ otherwise. If a boat drops
 \begin{equation}
     r^{\mathrm{drop}}_t=-40.
 \end{equation}
-The remaining speed and foiling terms are
+The residual speed and foil terms are
 \begin{equation}
 r^{\mathrm{foil}}_t =
 \begin{cases}
@@ -391,7 +391,7 @@ and
 \end{equation}
 where $v^{\mathrm{leg}}=20$ knots on the upwind leg and $24$ knots otherwise.
 
-The multi-agent tactical advantage compares the two boats' distances to their active targets:
+The multi-agent tactical advantage compares the two vessels' distances to their respective active targets:
 \begin{equation}
     r^{\mathrm{tac}}_t =
     1.5\,\mathrm{clip}
@@ -400,7 +400,7 @@ The multi-agent tactical advantage compares the two boats' distances to their ac
         -1,1
     \right).
 \end{equation}
-The course-direction shaping term rewards movement along the appropriate vertical direction:
+The course direction shaping term rewards movement in the appropriate vertical direction:
 \begin{equation}
 r^{y}_t=
 \begin{cases}
@@ -409,12 +409,12 @@ r^{y}_t=
 \end{cases}
 \end{equation}
 
-Collision avoidance is implemented through near-collision, time-to-collision, and hard-collision penalties. If $d^{ij}_t$ is the distance between two boats and $d^{ij}_t<40$, the near-collision penalty is
+Collision avoidance is implemented through near-miss, time-to-collision, and direct collision penalties. If $d^{ij}_t$ is the distance between the two vessels and $d^{ij}_t<40$, the near-miss penalty is
 \begin{equation}
     p^{\mathrm{near}}_t =
     3\frac{40-d^{ij}_t}{40}.
 \end{equation}
-If the closing speed $c^{ij}_t$ is positive, the time-to-collision is
+If the closing speed $c^{ij}_t$ is positive, the time to collision is
 \begin{equation}
     \mathrm{TTC}_t = \frac{d^{ij}_t}{c^{ij}_t}.
 \end{equation}
@@ -429,7 +429,7 @@ If $d^{ij}_t<20$, the overlap penalty is
     p^{\mathrm{coll}}_t =
     20\frac{20-d^{ij}_t}{20},
 \end{equation}
-with a multiplier $1.6$ applied to the port-tack boat on opposite tacks. Hard violations such as severe collision, missed gates, out-of-bounds movement, wrong-course movement, failed rounding, and spin violation receive a terminal penalty of $-10000$.
+with a multiplier of $1.6$ applied to the port-tack boat on opposite tacks. Severe violations such as hard collision, missed gate, out of bounds, wrong course movement, failed rounding, and rotation violation receive a terminal penalty of $-10000$.
 
 Gate bonuses are sparse but important:
 \begin{equation}
@@ -442,8 +442,8 @@ where
 \begin{equation}
 B^{\mathrm{finish}}_t=
 \begin{cases}
-2500+1000\frac{1800-t}{1800}, & \text{first finisher},\\
-700, & \text{second finisher},\\
+2500+1000\frac{1800-t}{1800}, & \text{first to cross the finish},\\
+700, & \text{second to cross the finish},\\
 0, & \text{otherwise}.
 \end{cases}
 \end{equation}
@@ -473,7 +473,7 @@ r^{\mathrm{prog}}_t
 \section{Experimental Setup and Results}
 
 \subsection{Training Infrastructure}
-The training pipeline uses Stable-Baselines3 PPO. The PettingZoo environment is wrapped with SuperSuit, converted to a vectorized environment, monitored with \texttt{VecMonitor}, and augmented with \texttt{VecFrameStack}. The configuration is read from \texttt{config.yaml}; therefore the hyperparameters in Table \ref{tab:hparams} reflect the actual project configuration rather than earlier draft values.
+The training pipeline uses PPO from Stable-Baselines3. The PettingZoo environment is wrapped with SuperSuit, converted to a vectorized environment, monitored with \texttt{VecMonitor}, and augmented with \texttt{VecFrameStack}. The configuration is read from \texttt{config.yaml}; therefore the hyperparameters in Table~\ref{tab:hparams} reflect the actual project configuration.
 
 \begin{table}[htpb]
     \centering
@@ -487,7 +487,7 @@ The training pipeline uses Stable-Baselines3 PPO. The PettingZoo environment is 
         Parallel environments (\texttt{n\_envs}) & $16$ \\
         Agents per environment & $2$ \\
         Frame stacking & $4$ frames \\
-        Effective input dimension & $23\times 4=92$ \\
+        Effective input size & $23\times 4=92$ \\
         Network architecture & MLP $[256,256]$ for policy and value networks \\
         Learning rate & $2\times 10^{-4}$ \\
         Rollout steps (\texttt{n\_steps}) & $4096$ \\
@@ -495,76 +495,67 @@ The training pipeline uses Stable-Baselines3 PPO. The PettingZoo environment is 
         Optimization epochs & $10$ \\
         Discount factor $\gamma$ & $0.99$ \\
         GAE parameter $\lambda$ & $0.95$ \\
-        PPO clip range & $0.2$ \\
+        PPO clipping range & $0.2$ \\
         Entropy coefficient & $0.01$ \\
-        Success-window size & $100$ episodes \\
+        Success window size & $100$ episodes \\
         Success threshold & $0.95$ \\
         \hline
     \end{tabular}
-    \caption{Training configuration extracted from \texttt{config.yaml}.}
+    \caption{Training configuration used.}
     \label{tab:hparams}
 \end{table}
 
 \subsection{Available Evidence}
-The repository contains a trained model artifact, exported plots, and a rendered demonstration video, but it does not contain raw evaluation logs, CSV summaries, or TensorBoard event files. Consequently, the report does not present measured finish-rate tables or DNF percentages. This is a deliberate methodological choice: reporting quantitative outcome distributions without raw evaluation data would be less rigorous than explicitly limiting the conclusions to the available artifacts.
+The repository contains a trained model artifact, exported plots, and a rendered demonstration video, but does not contain raw evaluation logs, CSV summaries, or TensorBoard event files. Consequently, the report does not present tables of measured arrival rates or DNF percentages (these are only shown in the console during training).
 
 \begin{figure}[htpb]
     \centering
     \includegraphics[width=0.48\textwidth]{images/ep_rew_mean.png}\hfill
     \includegraphics[width=0.48\textwidth]{images/global_mean_kts.png}
-    \caption{Available training plots. The left plot reports mean episodic reward; the right plot reports global mean VMG in knots. These figures support a qualitative discussion of learning dynamics, but not a standalone finish-rate estimate.}
+    \caption{Available training plots. The left plot reports mean episodic reward; the right plot reports global mean VMG in knots. These figures support a qualitative discussion of learning dynamics.}
     \label{fig:training_plots}
 \end{figure}
 
-The available curves indicate that the optimization process produced a policy with improved reward and VMG behavior over training. The rendered trajectory further shows that the learned policy can generate non-trivial navigation behavior around the course, including gate-oriented sailing and interaction with the opponent.
+The available curves indicate that the optimization process produced a policy with improved reward and VMG behavior over the course of training. The rendered trajectory also shows that the learned policy is capable of generating non-trivial sailing behaviors along the course, including gate-oriented navigation and opponent interaction.
 
 \begin{figure}[htpb]
     \centering
     \includegraphics[width=0.78\textwidth]{images/screenshot_navigation.png}
-    \caption{Rendered simulation frame from the available demonstration. The visualization is used as qualitative evidence of learned navigation behavior, not as a statistical evaluation over multiple seeds.}
+    \caption{Rendered simulation frame from the available demonstration. The visualization is used as qualitative evidence of the learned navigation behavior, not as a statistical evaluation over multiple seeds.}
     \label{fig:trajectory}
 \end{figure}
 
-\subsection{Implemented Outcome Categories}
-Although empirical counts are not available, the environment implements a detailed set of terminal outcomes. These categories can be interpreted as DNF-style failure modes for future evaluation:
-\begin{table}[htpb]
-    \centering
-    \renewcommand{\arraystretch}{1.2}
-    \begin{tabular}{|p{0.28\linewidth}|p{0.64\linewidth}|}
-        \hline
-        \textbf{Outcome category} & \textbf{Meaning in the simulator} \\
-        \hline
-        \texttt{finished\_first}, \texttt{finished\_second} & Boat crosses the bottom finish gate after completing the course. \\
-        \hline
-        \texttt{missed\_start\_gate}, \texttt{missed\_top\_gate}, \texttt{missed\_bottom\_gate} & Boat crosses a required gate line outside the legal gate interval. \\
-        \hline
-        \texttt{failed\_rounding} & Boat fails to complete the mandatory rounding segment after retries. \\
-        \hline
-        \texttt{wrong\_course}, \texttt{out\_of\_bounds} & Boat violates course direction or exits the valid field. \\
-        \hline
-        \begin{tabular}[t]{@{}l@{}}\texttt{collision}\\\texttt{collision\_port\_}\\\texttt{tack\_violation}\end{tabular} & Severe collision, with Rule 10 asymmetry on opposite tacks. \\
-        \hline
-        \texttt{spin\_violation}, \texttt{timeout} & Degenerate turning behavior or maximum episode length reached. \\
-        \hline
-    \end{tabular}
-    \caption{Environment-defined outcome categories available for future quantitative evaluation.}
-    \label{tab:outcomes}
-\end{table}
-
 \subsection{Comparison with the Course Notebook}
-The class notebook introduces a didactic sailing task with a single agent, a simplified state representation, basic actions, reward based on target distance and speed, and a simplified polar/VMG model. The present project preserves the same conceptual core--learning a sailing policy from interaction--but substantially increases the complexity of the environment. It introduces two simultaneous agents, opponent-relative observations, PettingZoo parallel execution, continuous rudder and sail-trim actions, stochastic wind, gate logic, collision handling, Rule 10-inspired penalties, and a hybrid displacement/foiling performance model.
+The course notebook introduces a didactic single-agent sailing task with a simplified state representation, basic actions, reward based on distance to target and speed, and a simplified polar/VMG model. The present project preserves the same conceptual core -- learning a navigation policy from interaction -- but substantially increases the environment complexity. It introduces two simultaneous agents, opponent-relative observations, PettingZoo parallel execution, continuous rudder and sail trim actions, stochastic wind, gate logic, collision handling, Rule 10-inspired penalties, and a hybrid displacement/foil performance model.
 
-This progression is important pedagogically: the project remains grounded in the course's MDP and model-free RL formulation, but demonstrates how the same concepts scale to a richer multi-agent control problem.
+\section{Conclusions and Future Work}
+\subsection{Conclusions}
+This project started from a simple idea: transforming the course's didactic environment into something closer to a real regatta. The result is a simulator that, while preserving the conceptual structure of reinforcement learning presented in the lectures, introduces a series of mechanisms that make the problem substantially richer: two vessels competing simultaneously, a wind field that changes continuously, boats that can fly on foils or sail in displacement mode, and an articulated course with mandatory gates and right-of-way rules.
 
-\section{Conclusions}
-This report formalized the \textit{CoppaAmerica Multiagent} simulator as a model-free reinforcement-learning problem with continuous observations, continuous actions, stochastic wind, hybrid boat dynamics, and multi-agent tactical interaction. The theoretical background follows the course progression from agent-environment interaction to MDPs, policies, return, value functions, Bellman equations, model-free learning, and function approximation. PPO is then used as the practical continuous-control algorithm.
+With continuous observations and actions and a dense, multi-objective reward function, tabular methods are not applicable, and PPO offers a good compromise between stability and the ability to handle continuous control spaces. The training plots show that the optimization process worked: mean episodic reward grows over the course of training, and so does mean VMG, suggesting that the boats have learned something non-trivial about how to navigate efficiently.
 
-The main strength of the project is the integration of several interacting mechanisms: polar performance, trim efficiency, foiling transitions, VMG optimization, tactical advantage, gate sequencing, and collision/rule penalties. The main limitation of the current report is empirical: the repository does not contain raw evaluation logs, so finish rates and DNF distributions cannot be stated rigorously. Future work should add a deterministic evaluation script that runs a fixed set of seeds, records terminal reasons, computes finish rates and DNF categories, and exports a reproducible CSV table for inclusion in the report.
+Finally, looking at the rendered trajectories, what we can state is that the learned policy produces gate-oriented navigation, opponent interaction, and foil transitions under appropriate conditions. That is not a trivial result for an environment of this complexity.
+
+\subsection{Future Work}
+
+\subsubsection{Pre-Start Phase}
+One of the most interesting developments that could be integrated into the environment concerns the simulation of the pre-start phase, that is, the period preceding the official race start. In real match races, this phase is anything but passive: vessels maneuver actively near the starting line seeking the most advantageous position, managing timing with precision, and trying to put pressure on the opponent without incurring a premature start (OCS, \textit{On Course Side}).
+
+The idea would be to introduce a dedicated state variable that distinguishes the pre-start phase from the actual race. During the pre-start, boats would be spawned below the starting line and would maneuver freely, receiving different reward signals from those of the race: they would be rewarded for proximity to the line, for dynamic movement, and for their ability to position themselves favorably relative to the opponent. Crossing the line prematurely would incur an immediate penalty and episode termination, replicating the OCS penalty of real regattas.
+
+After a fixed number of steps, the environment would automatically transition to the competitive phase, activating the full race logic with gates, rounding, and finish. This clear separation between the two phases would allow agents to learn pre-start tactical behaviors distinct from course navigation behaviors, considerably enriching the complexity and realism of the simulation.
+
+\subsubsection{Collection and Analysis of Evaluation Data}
+A concrete limitation of the current work is the absence of systematic evaluation data. During training, mean episodic reward and VMG are recorded, but no tracking is kept of how episodes terminate. Adding a dedicated evaluation script that runs a fixed number of episodes on controlled seeds and records the termination reason for each one would allow a much more precise understanding of what the policy is actually learning.
+
+The most useful data to collect would be the course completion rate, that is, the percentage of episodes in which at least one of the two boats crosses the finish line, and the distribution of outcome categories for episodes that do not reach the end: how many terminate due to \texttt{timeout}, how many due to \texttt{missed\_top\_gate} or \texttt{missed\_bottom\_gate}, how many due to \texttt{collision}, how many due to \texttt{wrong\_course} or \texttt{spin\_violation}. This distribution is particularly informative because the different failure categories indicate qualitatively different problems in the policy: a high \texttt{timeout} rate would suggest that the boats are sailing but in too slow or dispersive a manner, while a high \texttt{missed\_top\_gate} rate indicates that upwind rounding has not yet been correctly learned.
+
+Having these numbers exported in a reproducible CSV table would also allow rigorous comparison of different model versions, instead of relying exclusively on qualitative observation of rendered trajectories.
 
 \begin{thebibliography}{9}
 \bibitem{course_notes}
 Francesco Pivi.
-\textit{Reinforcement Learning Introduction}.
+\textit{Introduction to Reinforcement Learning}.
 Course notes, 2025.
 
 \bibitem{ppo}
