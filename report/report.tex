@@ -20,20 +20,20 @@ Daniele Silvestri}
 \maketitle
 
 \begin{abstract}
-This paper presents a Multi-Agent Reinforcement Learning (MARL) framework for a two-dimensional simulator of America's Cup regattas. The project extends a didactic reinforcement learning environment applied to sailing into a competitive PettingZoo \texttt{ParallelEnv}, in which two autonomous vessels learn continuous rudder and sail trim control in the presence of stochastic wind, polar performance constraints, and hybrid dynamics between displacement and foiling navigation. The agents are trained with the PPO (Proximal Policy Optimization) algorithm via Stable-Baselines3 and SuperSuit vectorization. The available evidence consists of the trained model artifact, rendered trajectories, and training plots exported for mean episodic reward and mean VMG (Velocity Made Good).
+This paper presents a Multi-Agent Reinforcement Learning (MARL) framework for a two-dimensional simulator of America's Cup regattas. The project extends a didactic reinforcement learning environment applied to sailing \cite{course_notes} into a competitive PettingZoo \texttt{ParallelEnv} \cite{pettingzoo}, in which two autonomous vessels learn continuous rudder and sail trim control in the presence of stochastic wind, polar performance constraints, and hybrid dynamics between displacement and foiling navigation. The agents are trained with the PPO (Proximal Policy Optimization) algorithm \cite{ppo} via Stable-Baselines3 \cite{sb3} and SuperSuit vectorization. The available evidence consists of the trained model artifact, rendered trajectories, and training plots exported for mean episodic reward and mean VMG (Velocity Made Good).
 \end{abstract}
 
 \section{Introduction}
 Autonomous sailing is a sequential decision-making problem in which control, navigation, and environmental adaptation are tightly coupled. A sailing vessel cannot move freely in arbitrary directions: its achievable speed is constrained by the wind angle, the aerodynamic efficiency of the sails, hydrodynamic resistance, and, in modern high-performance craft, the transition between displacement and foiling navigation. America's Cup regattas add a further competitive layer: each vessel must not only optimize its progress along the course, but also react to the opponent while respecting tactical constraints and racing rules.
 
-This project, \textit{CoppaAmerica Multiagente}, implements a simplified yet technically rich 2D simulator of an America's Cup match race. The environment contains two agents, \texttt{red\_boat} and \texttt{blue\_boat}, a rectangular racing field, an upwind/downwind course with mandatory gates, a stochastic wind field, continuous rudder and sail trim actions, and a dense reward function designed to incentivize progress, VMG, trim efficiency, foil stability, and safe tactical interactions.
+This project implements a simplified yet technically rich 2D simulator of an America's Cup match race. The environment contains two agents, \texttt{red\_boat} and \texttt{blue\_boat}, a rectangular racing field, an upwind/downwind course with mandatory gates, a stochastic wind field, continuous rudder and sail trim actions, and a dense reward function designed to incentivize progress, VMG, trim efficiency, foil stability, and safe tactical interactions.
 
-The work is conceptually linked to the course notebook \textit{RL basics: learning how to sail}, in which a single sailing vessel learns to reach a waypoint in a simplified Gymnasium environment, using state variables, actions, rewards, polar behavior, and basic VMG. The present project generalizes that didactic setup along four dimensions: it moves from a single-agent task to a competitive multi-agent environment, from simplified/discrete steering to continuous control, from a basic physical model to a hybrid displacement/foil polar model, and from a fixed or simple wind model to stochastic spatio-temporal wind dynamics.
+The work is conceptually linked to the course lectures \cite{course_notes}, in which a single sailing vessel learns to reach a waypoint in a simplified Gymnasium environment, using state variables, actions, rewards, polar behavior, and basic VMG. The present project generalizes that didactic setup along four dimensions: it moves from a single-agent task to a competitive multi-agent environment, from simplified/discrete steering to continuous control, from a basic physical model to a hybrid displacement/foil polar model, and from a fixed or simple wind model to stochastic spatio-temporal wind dynamics.
 
 \section{Background}
 
 \subsection{Notation and Agent--Environment Interaction}
-Following the notation used in the course notes, random variables are denoted with uppercase letters, such as $S_t$, $A_t$, and $R_t$, while their realizations are denoted with lowercase letters, such as $s_t$, $a_t$, and $r_t$. Expected values are computed with respect to the probability distribution jointly induced by the policy and the environment dynamics.
+Following the notation used in the course notes \cite{course_notes}, random variables are denoted with uppercase letters, such as $S_t$, $A_t$, and $R_t$, while their realizations are denoted with lowercase letters, such as $s_t$, $a_t$, and $r_t$. Additionally, $\Delta(X)$ denotes the set of all probability distributions over a finite set $X$. Expected values are computed with respect to the probability distribution jointly induced by the policy and the environment dynamics.
 
 In Reinforcement Learning, an agent interacts with the environment at discrete time steps. At time $t$, the agent observes a state $S_t$, selects an action $A_t$, receives a reward $R_t$, and the environment transitions to a new state $S_{t+1}$. The interaction can be written as
 \begin{equation}
@@ -79,12 +79,20 @@ Under a stochastic policy $\pi$, the probability of such a trajectory is
     p(\tau) = p(s_0)\prod_{t=0}^{T}\pi(a_t \mid s_t)P(s_{t+1}\mid s_t,a_t).
 \end{equation}
 
-The goal of reinforcement learning is not to maximize immediate reward, but cumulative future reward. The discounted return from time $t$ is
+The goal of reinforcement learning is not to maximize immediate reward, but cumulative future reward. Without discounting, the sum of rewards $G_t = R_t + R_{t+1} + \cdots$ has no upper bound, which can lead to exploding gradients during optimization. To address this, we introduce a discount factor $\gamma \in [0,1]$ that controls how much the agent prioritizes immediate versus future rewards:
 \begin{equation}
     G_t = R_t + \gamma R_{t+1} + \gamma^2 R_{t+2} + \gamma^3 R_{t+3} + \cdots
     = \sum_{k=0}^{\infty}\gamma^k R_{t+k}.
 \end{equation}
-The objective is to find a policy that maximizes the expected discounted return:
+If the reward is constant ($R_t = R$), this simplifies to a geometric series:
+\begin{equation}
+    G_t = \frac{R}{1-\gamma}.
+\end{equation}
+Depending on the starting state assumption, the objective function can be defined either by fixing the initial state or by taking the expectation over the initial state distribution $\mu$:
+\begin{equation}
+    J(\pi) = \mathbb{E}_{\pi}\left[\sum_{t=0}^{\infty}\gamma^t R_t\right]
+\end{equation}
+or
 \begin{equation}
     J(\pi) =
     \mathbb{E}_{s_0 \sim \mu,\pi}
@@ -92,6 +100,7 @@ The objective is to find a policy that maximizes the expected discounted return:
         \sum_{t=0}^{\infty}\gamma^t R(S_t,A_t)
     \right].
 \end{equation}
+We need to find an optimal policy $\pi^\star$ that maximizes $J(\pi)$.
 
 \subsection{Value Functions and the Bellman Equation}
 The state value function measures the expected return starting from state $s$ following policy $\pi$:
@@ -129,11 +138,31 @@ Equivalently, the action value function satisfies
     Q^\pi(s,a) =
     r(s,a) + \gamma \sum_{s'}P(s'\mid s,a)V^\pi(s').
 \end{equation}
+The Bellman expectation equation can also be written in operator form:
+\begin{equation}
+    (T_\pi V)(s) = \sum_a \pi(a \mid s) \left[ r(s,a) + \gamma \sum_{s'} P(s' \mid s,a) V(s') \right],
+\end{equation}
+where the true value function $V^\pi$ is the unique fixed point of this operator $T_\pi$.
+
+\subsection{Optimality}
+We aim to learn a policy that achieves optimal performance. The optimal state value function $V^\star(s)$ and optimal action value function $Q^\star(s,a)$ are defined as:
+\begin{equation}
+    V^\star(s) = \sup_\pi V^\pi(s), \qquad Q^\star(s,a) = \sup_\pi Q^\pi(s,a).
+\end{equation}
+An improved policy $\pi'$ can be obtained by choosing actions greedily with respect to the state value function:
+\begin{equation}
+    \pi'(s) \in \arg\max_a \left[ r(s,a) + \gamma \sum_{s'} P(s'\mid s,a) V^\pi(s') \right],
+\end{equation}
+satisfying $V^{\pi'} \ge V^\pi$ for all states.
 
 \subsection{Model-Free Learning, Function Approximation, and PPO}
-In model-free reinforcement learning, the transition model $P$ and the reward model $r$ are not assumed to be analytically known. The agent instead learns from sampled transitions $(S_t,A_t,R_t,S_{t+1})$. With function approximation, value functions or policies are represented by parameterized models, typically neural networks. The temporal difference error for a value approximation $V_\theta$ is
+In model-free reinforcement learning, the transition model $P$ and the reward model $r$ are not assumed to be analytically known. The agent instead learns from sampled transitions $(S_t,A_t,R_t,S_{t+1})$. With function approximation, value functions or policies are represented by parameterized models, typically neural networks (for a comprehensive introduction to training neural networks, see \cite{karpathy_zero_to_hero}). The temporal difference error for a value approximation $V_\theta$ is
 \begin{equation}
-    \delta_t = R_t + \gamma V_\theta(S_{t+1}) - V_\theta(S_t),
+    \delta_t = R_t + \gamma V_\theta(S_{t+1}) - V_\theta(S_t).
+\end{equation}
+Using gradient descent with learning rate $\alpha$, we update the weights as:
+\begin{equation}
+    \theta \leftarrow \theta + \alpha \delta_t \nabla_\theta V_\theta(S_t),
 \end{equation}
 and the corresponding quadratic loss is
 \begin{equation}
@@ -141,13 +170,14 @@ and the corresponding quadratic loss is
     \frac{1}{2}
     \left(R_t + \gamma V_\theta(S_{t+1}) - V_\theta(S_t)\right)^2.
 \end{equation}
+The same principles apply to the parameterization of the action value function $Q_\theta(s,a)$.
 
-The America's Cup simulator has continuous observations, continuous actions, and nonlinear transition dynamics induced by wind, polar curves, foil state, and multi-agent interaction. For this reason, the implementation uses PPO (Proximal Policy Optimization), provided by Stable-Baselines3, as a practical model-free policy gradient method suited to continuous control. PPO is not used here to introduce additional theoretical machinery beyond the course notes; it is rather the concrete algorithmic tool that maps the function approximation perspective into a trainable continuous control policy.
+The America's Cup simulator has continuous observations, continuous actions, and nonlinear transition dynamics induced by wind, polar curves, foil state, and multi-agent interaction. For this reason, the implementation uses PPO (Proximal Policy Optimization) \cite{ppo}, provided by Stable-Baselines3 \cite{sb3}, as a practical model-free policy gradient method suited to continuous control. PPO is not used here to introduce additional theoretical machinery beyond the course notes \cite{course_notes}; it is rather the concrete algorithmic tool that maps the function approximation perspective into a trainable continuous control policy.
 
 \section{Methodology}
 
 \subsection{Race Course and Multi-Agent Formulation}
-The environment is implemented as a PettingZoo \texttt{ParallelEnv} with two agents:
+The environment is implemented as a PettingZoo \texttt{ParallelEnv} \cite{pettingzoo} with two agents:
 \begin{equation}
     \mathcal{I}=\{\texttt{red\_boat},\texttt{blue\_boat}\}.
 \end{equation}
@@ -473,7 +503,7 @@ r^{\mathrm{prog}}_t
 \section{Experimental Setup and Results}
 
 \subsection{Training Infrastructure}
-The training pipeline uses PPO from Stable-Baselines3. The PettingZoo environment is wrapped with SuperSuit, converted to a vectorized environment, monitored with \texttt{VecMonitor}, and augmented with \texttt{VecFrameStack}. The configuration is read from \texttt{config.yaml}; therefore the hyperparameters in Table~\ref{tab:hparams} reflect the actual project configuration.
+The training pipeline uses PPO \cite{ppo} from Stable-Baselines3 \cite{sb3}. The PettingZoo environment \cite{pettingzoo} is wrapped with SuperSuit, converted to a vectorized environment, monitored with \texttt{VecMonitor}, and augmented with \texttt{VecFrameStack}. The configuration is read from \texttt{config.yaml}; therefore the hyperparameters in Table~\ref{tab:hparams} reflect the actual project configuration.
 
 \begin{table}[htpb]
     \centering
@@ -572,6 +602,12 @@ Advances in Neural Information Processing Systems, 2021.
 Antonin Raffin, Ashley Hill, Adam Gleave, Anssi Kanervisto, Maximilian Ernestus, Noah Dormann, and others.
 \textit{Stable-Baselines3: Reliable Reinforcement Learning Implementations}.
 Journal of Machine Learning Research, 22(268):1--8, 2021.
+
+\bibitem{karpathy_zero_to_hero}
+Andrej Karpathy.
+\textit{Neural Networks: Zero to Hero}.
+Course playlist, 2022.
+URL: \url{https://karpathy.ai/zero-to-hero.html}.
 \end{thebibliography}
 
 \end{document}
