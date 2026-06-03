@@ -10,32 +10,6 @@ Il sistema è basato su **Multi-Agent Reinforcement Learning (MARL)** ed è impl
 
 Il simulatore riproduce una sfida ravvicinata (match race) tra due barche identiche, denominate `red_boat` e `blue_boat`. Per vincere, gli agenti devono navigare in un campo di regata stocastico rispettando la fisica della vela, le polari di velocità dell'imbarcazione e le regole di precedenza della regata reale.
 
-```
-       [ CANCELLO SUPERIORE (Top Gate) - Y = 3900m ]
-                   O               O
-                   |               |
-                   \               /
-                    \   [ROUND]   /
-                     \   BOA     /
-                      \         /
-                       \       /
-                        \     /  (Leg 1 - Bolina / Upwind)
-                         \   /
-                          \ /
-                           X  (Vento contrario da Nord)
-                          / \
-                         /   \
-                        /     \
-                       /       \ (Leg 2 - Poppa / Downwind)
-                      /         \
-                     /           \
-                    /             \
-                   /               \
-                   O               O
-       [ CANCELLO INFERIORE (Bottom Gate) - Y = 200m ]
-                    [ PARTENZA - Y = 120m ]
-```
-
 ### ⚓ Struttura della Regata (Leg)
 
 La gara è organizzata in fasi sequenziali controllate dallo stato interno degli agenti (`current_leg`):
@@ -156,5 +130,4 @@ I parametri fisici ed algoritmici sono controllati centralmente nel file [config
 
 ## 📚 Teoria e Background Scientifico
 
-Per una trattazione matematica formale dei processi decisionali di Markov (MDP), dell'equazione ricorsiva di Bellman, dei concetti di ottimalità, delle dinamiche di volo del foiling e per l'analisi qualitativa dei grafici di apprendimento ottenuti, si rimanda al report accademico completo:
-📄 **[Report America's Cup MARL (PDF)](file:///Users/francescomariafuligni/Desktop/UNI/magistrale_1_anno/1_semestre/INTELLIGENZA_ARTIFICIALE/Progetto/Multi-agent_America_Cup/report/report.pdf)**.
+Per una trattazione matematica formale dei processi decisionali di Markov (MDP), dell'equazione ricorsiva di Bellman, dei concetti di ottimalità, delle dinamiche di volo del foiling e per l'analisi qualitativa dei grafici di apprendimento ottenuti, si rimanda al report accademico completo.
