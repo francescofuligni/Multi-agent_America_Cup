@@ -125,9 +125,3 @@ I parametri fisici ed algoritmici sono controllati centralmente nel file [config
 | `frame_stack` | $4$ | Stacking dei frame per catturare l'evoluzione temporale di vento e avversario |
 | `success_threshold_pct`| $0.95$ | Percentuale minima di arrivi completati richiesta per l'arresto anticipato |
 | `success_window_size` | $100$ | Numero di episodi su cui calcolare la percentuale di successo |
-
----
-
-## 📚 Teoria e Background Scientifico
-
-Per una trattazione matematica formale dei processi decisionali di Markov (MDP), dell'equazione ricorsiva di Bellman, dei concetti di ottimalità, delle dinamiche di volo del foiling e per l'analisi qualitativa dei grafici di apprendimento ottenuti, si rimanda al report accademico completo.
